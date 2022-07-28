@@ -1,0 +1,102 @@
+#include <Servo.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include "Zanshin_BME680.h"
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+Servo myservo;
+BME680_Class BME680;
+
+float altitude(const int32_t press, const float seaLevel = 1013.25);
+float altitude(const int32_t press, const float seaLevel) {
+  /*!
+  @brief     This converts a pressure measurement into a height in meters
+  @details   The corrected sea-level pressure can be passed into the function if it is known,
+             otherwise the standard atmospheric pressure of 1013.25hPa is used (see
+             https://en.wikipedia.org/wiki/Atmospheric_pressure) for details.
+  @param[in] press    Pressure reading from BME680
+  @param[in] seaLevel Sea-Level pressure in millibars
+  @return    floating point altitude in meters.
+  */
+  static float Altitude;
+  Altitude =
+      44330.0 * (1.0 - pow(((float)press / 100.0) / seaLevel, 0.1903));  // Convert into meters
+  return (Altitude);
+}  // of method altitude()
+
+
+void setup() {
+  myservo.attach(9);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.display();
+  delay(2000);
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0,0);
+
+#ifdef __AVR_ATmega32U4__      // If this is a 32U4 processor, then wait 3 seconds to init USB port
+  delay(3000);
+#endif
+
+  while (!BME680.begin(I2C_STANDARD_MODE)) {  // Start BME680 using I2C, use first device found
+    delay(5000);
+  }  // of loop until device is located
+
+  BME680.setOversampling(TemperatureSensor, Oversample16);  // Use enumerated type values
+  BME680.setOversampling(HumiditySensor, Oversample16);     // Use enumerated type values
+  BME680.setOversampling(PressureSensor, Oversample16);     // Use enumerated type values
+  BME680.setIIRFilter(IIR4);  // Use enumerated type values
+  BME680.setGas(320, 150);  // 320�c for 150 milliseconds
+}
+
+void loop() {
+
+  static int32_t  temp, humidity, pressure, gas;  // BME readings
+  static char     buf[16];                        // sprintf text buffer
+  static float    alt;                            // Temporary variable
+//  static uint16_t loopCounter = 0;                // Display iterations
+  display.clearDisplay();
+  display.setCursor(0,0);
+
+  BME680.getSensorData(temp, humidity, pressure, gas);  // Get readings
+
+  sprintf(buf, "%3d.%02d",(int8_t)(temp / 100), (uint8_t)(temp % 100));   // Temp in decidegrees
+  display.print("Temp:");
+  display.print(buf);
+  display.println(" deg C");
+  sprintf(buf, "%3d.%03d", (int8_t)(humidity / 1000),(uint16_t)(humidity % 1000));  // Humidity milli-pct
+  display.print("Humidity:");
+  display.print(buf);
+  display.println(" mPct");
+  sprintf(buf, "%7d.%02d", (int16_t)(pressure / 100),(uint8_t)(pressure % 100));  // Pressure Pascals
+  display.print("Pressure:");
+  display.print(buf);
+  display.println("Pa");
+//  alt = altitude(pressure);                                                // temp altitude
+//  sprintf(buf, "%5d.%02d", (int16_t)(alt), ((uint8_t)(alt * 100) % 100));  // Altitude meters
+//  display.print("Altitude:");
+//  display.print(buf);
+//  display.println(" m");
+  sprintf(buf, "%4d.%02d", (int16_t)(gas / 100), (uint8_t)(gas % 100));  // Resistance milliohms
+  display.print("C02:");
+  display.print(buf);
+  display.println(" mOhm");
+  display.display();
+
+  if(temp < 3000){
+    myservo.write(180);
+    delay(1000);
+  }else{
+    myservo.write(0);
+    delay(1000);
+  }
+}
